@@ -120,7 +120,7 @@
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
 #  endif
-#  include <Windows.h>
+#  include <windows.h>
 #  if ENABLE_VALIDATE_ARGS
 #    include <Intsafe.h>
 #  endif
@@ -189,7 +189,33 @@ _rpmalloc_thread_destructor(void* value) {
 ///
 //////
 
-#if defined(_MSC_VER) && !defined(__clang__)
+#ifdef RPMALLOC_SINGLE_THREAD
+
+#include <stdatomic.h>
+
+typedef int32_t atomic32_t;
+typedef int64_t atomic64_t;
+typedef void* atomicptr_t;
+
+static FORCEINLINE int32_t atomic_load32(atomic32_t* src) { return *src; }
+static FORCEINLINE void    atomic_store32(atomic32_t* dst, int32_t val) { *dst = val; }
+static FORCEINLINE int32_t atomic_incr32(atomic32_t* val) { return ++(*val); }
+static FORCEINLINE int32_t atomic_decr32(atomic32_t* val) { return --(*val); }
+static FORCEINLINE int32_t atomic_add32(atomic32_t* val, int32_t add) { return (*val) += add; }
+static FORCEINLINE int     atomic_cas32_acquire(atomic32_t* dst, int32_t val, int32_t ref) { if(*dst == ref) { *dst = val; return 1; } return 0; }
+static FORCEINLINE void    atomic_store32_release(atomic32_t* dst, int32_t val) { *dst = val; }
+static FORCEINLINE int64_t atomic_load64(atomic64_t* src) { return *src; }
+static FORCEINLINE int64_t atomic_add64(atomic64_t* val, int64_t add) { return (*val) += add; }
+static FORCEINLINE void*   atomic_load_ptr(atomicptr_t* src) { return (void*)*src; }
+static FORCEINLINE void    atomic_store_ptr(atomicptr_t* dst, void* val) { *dst = val; }
+static FORCEINLINE void    atomic_store_ptr_release(atomicptr_t* dst, void* val) { *dst = val; }
+static FORCEINLINE void*   atomic_exchange_ptr_acquire(atomicptr_t* dst, void* val) { void* tmp = *dst; *dst = val; return tmp; }
+static FORCEINLINE int     atomic_cas_ptr(atomicptr_t* dst, void* val, void* ref) { if(*dst == ref) { *dst = val; return 1; } return 0; }
+
+#define EXPECTED(x) __builtin_expect((x), 1)
+#define UNEXPECTED(x) __builtin_expect((x), 0)
+
+#elif defined(_MSC_VER) && !defined(__clang__)
 
 typedef volatile long      atomic32_t;
 typedef volatile long long atomic64_t;
@@ -238,7 +264,7 @@ static FORCEINLINE int     atomic_cas_ptr(atomicptr_t* dst, void* val, void* ref
 
 #define EXPECTED(x) __builtin_expect((x), 1)
 #define UNEXPECTED(x) __builtin_expect((x), 0)
-    
+
 #endif
 
 ////////////
@@ -653,7 +679,9 @@ static int32_t _huge_pages_peak;
 //////
 
 //! Current thread heap
-#if (defined(__APPLE__) || defined(__HAIKU__)) && ENABLE_PRELOAD
+#ifdef RPMALLOC_SINGLE_THREAD
+static heap_t* _memory_thread_heap;
+#elif (defined(__APPLE__) || defined(__HAIKU__)) && ENABLE_PRELOAD
 static pthread_key_t _memory_thread_heap;
 #else
 #  ifdef _MSC_VER
